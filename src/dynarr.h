@@ -21,13 +21,16 @@
     }                                                                          \
     static inline void dyn_##NAME##_push(dyn_##NAME *obj, TYPE val)            \
     {                                                                          \
-        if (obj->len >= obj->capacity)                                         \
-        {                                                                      \
-            obj->capacity = obj->capacity * 2;                                 \
-            obj->arr = reallocarray(obj->arr, obj->capacity, sizeof(TYPE));    \
-        }                                                                      \
-        obj->arr[obj->len++] = val;                                            \
-        obj->arr[obj->len] = 0;                                                \
-    }
+<<<<<<< HEAD
+if (obj->len >= obj->capacity)
+{
+    obj->capacity = obj->capacity * 2;                                 \
+=======
+>>>>>>> ec07787 (Dynamic templated array)
+    obj->arr = reallocarray(obj->arr, obj->capacity, sizeof(TYPE));
+}
+obj->arr[obj->len++] = val;
+obj->arr[obj->len] = 0;
+}
 
 #endif
