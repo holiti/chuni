@@ -23,11 +23,25 @@
     {                                                                          \
         if (obj->len >= obj->capacity)                                         \
         {                                                                      \
-            obj->capacity = obj->capacity * 2;                                 \
+            obj->capacity = obj->capacity << 1;                                \
             obj->arr = reallocarray(obj->arr, obj->capacity, sizeof(TYPE));    \
         }                                                                      \
         obj->arr[obj->len++] = val;                                            \
         obj->arr[obj->len] = 0;                                                \
+    }                                                                          \
+                                                                               \
+    static inline void dyn_##NAME##_pop(dyn_##NAME *obj)                       \
+    {                                                                          \
+        if (obj->len == 0)                                                     \
+        {                                                                      \
+            return;                                                            \
+        }                                                                      \
+        obj->len -= 1;                                                         \
+        if (obj->len < (obj->capacity >> 1) && obj->capacity > 1)              \
+        {                                                                      \
+            obj->capacity = obj->capacity >> 1;                                \
+            obj->arr = reallocarray(obj->arr, obj->capacity, sizeof(TYPE));    \
+        }                                                                      \
     }
 
 #endif
