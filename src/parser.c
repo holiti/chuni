@@ -1,28 +1,7 @@
 #include "parser.h"
 
-/* Separators
- 1. ||
- 2. &&
- 3. >>
- 4. >
- 5. <
- 6. |
- 7. (
- 8. )
- 9. ;
- 10. &
- */
-
-enum
-{
-    PSEP_COUNT = 11,
-    PSEP_SZ2 = 4,
-};
-
-static const char *sep[PSEP_COUNT] = {"",  "||", "&&", ">>", ">", "<",
-                                      "|", "(",  ")",  ";",  "&"};
-
 DYN_STRUCT(char *, pchar);
+DYN_STRUCT(char, char);
 
 static void free_pchar(dyn_pchar *pch)
 {
@@ -81,6 +60,7 @@ char **parse_str(const char *str)
     int bleft = -1;
     int badch = 0;
     dyn_pchar *words = dyn_pchar_init();
+    char **res;
 
     for (int i = 0; i < strl; ++i)
     {
@@ -142,5 +122,28 @@ char **parse_str(const char *str)
     }
     dyn_pchar_push(words, NULL);
 
-    return words->arr;
+    res = words->arr;
+    free(words);
+    return res;
+}
+
+char *readstr()
+{
+    dyn_char *str = dyn_char_init();
+    char *res;
+    char ch, last;
+
+    ch = getchar();
+    while (!(ch == EOF || (ch == '\n' && last != '\\')))
+    {
+        dyn_char_push(str, ch);
+        last = ch;
+        ch = getchar();
+    }
+
+    dyn_char_push(str, 0);
+
+    res = str->arr;
+    free(str);
+    return res;
 }
