@@ -27,7 +27,6 @@
             obj->arr = reallocarray(obj->arr, obj->capacity, sizeof(TYPE));    \
         }                                                                      \
         obj->arr[obj->len++] = val;                                            \
-        obj->arr[obj->len] = 0;                                                \
     }                                                                          \
                                                                                \
     static inline void dyn_##NAME##_pop(dyn_##NAME *obj)                       \
