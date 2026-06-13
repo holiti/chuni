@@ -7,17 +7,18 @@ enum
     UT_TRUNCATE = 2,
     JOB_BUFFER_LEN = 1024,
     NUM_BUFFER_LEN = 32,
+    BG_PROCESS_LEN = 1024,
 };
+
+#define ERR(msg) fprintf(stderr, TTL ": %s\n", msg);
 
 char job_buff[JOB_BUFFER_LEN];
 char num_buff[NUM_BUFFER_LEN];
 char *bg_msg_front = TTL ": Job ";
 char *bg_msg_has = ", has ";
-
-#define ERR(msg) fprintf(stderr, TTL ": %s\n", msg);
-
-DYN_STRUCT(size_t, int)
-static dyn_int *pids;
+int bg_id = 0;
+int bg_cnt = 0;
+int bg_pids[BG_PROCESS_LEN];
 
 struct sigaction sold;
 struct sigaction snew;
@@ -82,8 +83,13 @@ static int replace_fd(int new_fd, int fd)
 
 static void reverse(char *ptr, int len)
 {
+    int tmp;
     for (int i = 0, mid = len / 2; i < mid; ++i)
+    {
+        tmp = ptr[i];
         ptr[i] = ptr[len - 1 - i];
+        ptr[len - 1 - i] = tmp;
+    }
 }
 
 static int itos(long int n)
@@ -91,7 +97,7 @@ static int itos(long int n)
     int len = 0;
     while (n)
     {
-        num_buff[len++] = n % 10 + '0';
+        num_buff[len++] = (n % 10) + '0';
         n /= 10;
     }
     num_buff[len] = 0;
@@ -129,23 +135,36 @@ static void print_bg_msg(long int id, long int pid, const char *str)
     write(0, job_buff, i);
 }
 
-static void end_bg(int pid, int status)
+static void end_bg(size_t pid, int status)
 {
-    int id;
-    for (id = 0; id < pids->len; ++id)
+    int i;
+    int id = 0;
+    int last_bg = 0;
+
+    for (i = 0; i < bg_id; ++i)
     {
-        if (pids->arr[id] == pid)
+        if (bg_pids[i] < 0)
+        {
+            last_bg = i;
+            ++id;
+        }
+        else if (bg_pids[i] == pid)
         {
             break;
         }
     }
 
-    print_bg_msg(id + 1l, pid, stat[get_stat_id(status)]);
-
-    pids->arr[id] = -1;
-    while (pids->len > 0 && pids->arr[pids->len - 1] == -1)
+    ++bg_pids[last_bg];
+    if (bg_pids[last_bg] == -1)
     {
-        dyn_int_pop(pids);
+        print_bg_msg(id, pid, stat[get_stat_id(status)]);
+        --bg_cnt;
+    }
+
+    bg_pids[i] = 0;
+    while (bg_id > 0 && bg_pids[bg_id - 1] <= 0)
+    {
+        --bg_id;
     }
 }
 
@@ -205,7 +224,7 @@ static int exec(struct exec_unit *ut)
         status = chuni_cmd[chuni_cmd_i](ut->arg);
         if (ut->flags & UT_BACKGROUND)
         {
-            print_bg_msg(pids->len + 1, 0, stat[0]);
+            print_bg_msg(bg_cnt + 1, 0, stat[0]);
         }
     }
     else
@@ -227,7 +246,9 @@ static int exec(struct exec_unit *ut)
 
         if (ut->flags & UT_BACKGROUND)
         {
-            dyn_int_push(pids, pid);
+            bg_cnt += 1;
+            bg_pids[bg_id++] = -2;
+            bg_pids[bg_id++] = pid;
             status = 0;
         }
         else
@@ -369,7 +390,9 @@ void execute(char **arg, int *status)
 /* INIT AND FREE PIDS */
 void init_exec()
 {
-    pids = dyn_int_init();
+
+    for (int i = 0; i < BG_PROCESS_LEN; ++i)
+        bg_pids[i] = 0;
 
     snew.sa_handler = sigchld;
     snew.sa_flags = SA_RESTART;
@@ -377,8 +400,4 @@ void init_exec()
     sigaction(SIGCHLD, &snew, &sold);
 }
 
-void free_exec()
-{
-    free(pids->arr);
-    free(pids);
-}
+void free_exec() {}
