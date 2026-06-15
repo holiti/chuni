@@ -1,10 +1,9 @@
 #include "exec.h"
+#include "execunit.h"
 
 enum
 {
     STAT_LEN = 3,
-    UT_BACKGROUND = 1,
-    UT_TRUNCATE = 2,
     JOB_BUFFER_LEN = 1024,
     NUM_BUFFER_LEN = 32,
     BG_PROCESS_LEN = 1024,
@@ -23,35 +22,6 @@ int bg_pids[BG_PROCESS_LEN];
 struct sigaction sold;
 struct sigaction snew;
 
-/* EXECUTION UNIT (COMANDA) */
-struct exec_unit
-{
-    char **arg;
-    char *input;
-    char *output;
-    int flags;
-    /*
-     * 1 - background execut
-     * 2 - truncate output file
-     */
-};
-
-static void init_unit(struct exec_unit *ut)
-{
-    ut->flags = 0;
-    ut->input = ut->output = NULL;
-    ut->arg = NULL;
-}
-
-static void clear_unit(struct exec_unit *ut)
-{
-    if (ut->input != NULL)
-        free(ut->input);
-    if (ut->output != NULL)
-        free(ut->output);
-    init_unit(ut);
-}
-
 /* STATUS TOOLS */
 static char *stat[STAT_LEN] = {"exited", "signaled", "stoped"};
 static int get_stat_id(const int status)
@@ -68,15 +38,6 @@ static int get_stat_id(const int status)
         id = 2;
     }
     return id;
-}
-
-/* STREAM REDIRECTION */
-static int replace_fd(int new_fd, int fd)
-{
-    int sv_fd = dup(new_fd);
-    dup2(fd, new_fd);
-    close(fd);
-    return sv_fd;
 }
 
 /* BACKGROUND EXECUTION SUPPORT */
@@ -179,102 +140,162 @@ static void sigchld(int sig)
     end_bg(pid, status);
 }
 
+/* STREAM REDIRECTION */
+static inline void replace_fd(int fd, int new_fd)
+{
+    dup2(fd, new_fd);
+    close(fd);
+}
+
 /* EXECUTE COMAND */
 static int exec(struct exec_unit *ut)
 {
-    int sv_input = -1, sv_output = -1;
     int fd;
     int pid;
     int status = 0;
-    int chuni_cmd_i;
+    struct cmd *cur = ut->first;
+    int sv_inp = dup(0), sv_out = dup(1);
+    int pip[2] = {-1, -1};
 
-    if (ut->arg == NULL || ut->arg[0] == NULL)
-    {
-        return 1;
-    }
+    int cmd_cnt = 0;
+    int need_wait = 0;
+    int chuni_cmd_id;
 
-    if (ut->input != NULL)
+    while (cur != NULL)
     {
-        fd = open(ut->input, O_RDONLY);
-        if (fd == -1)
+        if (cur == ut->first)
         {
-            perror(TTL);
-            return errno;
-        }
-        sv_input = replace_fd(0, fd);
-    }
-
-    if (ut->output != NULL)
-    {
-        fd = open(ut->output,
-                  O_WRONLY | O_CREAT |
-                      (ut->flags && UT_TRUNCATE ? O_TRUNC : O_APPEND),
-                  0666);
-        if (fd == -1)
-        {
-            perror(TTL);
-            return errno;
-        }
-        sv_output = replace_fd(1, fd);
-    }
-
-    chuni_cmd_i = is_chuni_cmd(ut->arg[0]);
-    if (chuni_cmd_i >= 0)
-    {
-        status = chuni_cmd[chuni_cmd_i](ut->arg);
-        if (ut->flags & UT_BACKGROUND)
-        {
-            print_bg_msg(bg_cnt + 1, 0, stat[0]);
-        }
-    }
-    else
-    {
-
-        pid = fork();
-        if (pid == -1)
-        {
-            perror(TTL);
-            return errno;
-        }
-        if (pid == 0)
-        {
-            execvp(ut->arg[0], ut->arg);
-            ERR("error during execution.");
-            fflush(stderr);
-            _exit(1);
+            if (ut->input != NULL)
+            {
+                fd = open(ut->input, O_RDONLY);
+                if (fd == -1)
+                {
+                    perror(TTL);
+                    status = 1;
+                    return status;
+                }
+                replace_fd(fd, 0);
+            }
+            else
+            {
+                dup2(sv_inp, 0);
+            }
         }
 
-        if (ut->flags & UT_BACKGROUND)
+        if (cur == ut->last)
         {
-            bg_cnt += 1;
-            bg_pids[bg_id++] = -2;
-            bg_pids[bg_id++] = pid;
-            status = 0;
+            if (ut->output != NULL)
+            {
+                fd = open(ut->output,
+                          O_WRONLY | O_CREAT |
+                              (ut->flags & UT_TRUNCATE ? O_TRUNC : O_APPEND),
+                          0666);
+                if (fd == -1)
+                {
+                    perror(TTL);
+                    status = 1;
+                    return status;
+                }
+                replace_fd(fd, 1);
+            }
+            else
+            {
+                dup2(sv_out, 1);
+            }
+        }
+
+        if (pip[0] != -1)
+        {
+            replace_fd(pip[0], 0);
+        }
+        if (cur != ut->last)
+        {
+            pipe(pip);
+            replace_fd(pip[1], 1);
+        }
+
+        chuni_cmd_id = is_chuni_cmd(cur->arg[0]);
+        if (chuni_cmd_id >= 0)
+        {
+            status = chuni_cmd[chuni_cmd_id](cur->arg);
+            if (!status)
+            {
+                ++cmd_cnt;
+                cur->pid = 0;
+            }
         }
         else
         {
-            int cpid;
-            sigaction(SIGCHLD, &sold, NULL);
-            do
+
+            pid = fork();
+            if (pid == 0)
             {
-                cpid = wait(&status);
-                if (cpid != pid)
-                {
-                    end_bg(cpid, status);
-                }
-            } while (cpid != pid);
-            sigaction(SIGCHLD, &snew, NULL);
+                if (pip[0] != -1)
+                    close(pip[0]);
+
+                execvp(cur->arg[0], cur->arg);
+                perror(TTL);
+                fflush(stderr);
+                _exit(1);
+            }
+            else if (pid == -1)
+            {
+                perror(TTL);
+            }
+            else
+            {
+                ++cmd_cnt;
+                ++need_wait;
+                cur->pid = pid;
+            }
+        }
+
+        cur = cur->next;
+    }
+
+    replace_fd(sv_inp, 0);
+    replace_fd(sv_out, 1);
+
+    if (cmd_cnt == 0)
+    {
+        status = 1;
+        return status;
+    }
+
+    if ((ut->flags & UT_BACKGROUND) && need_wait)
+    {
+        bg_pids[bg_id++] = -(need_wait + 1);
+        cur = ut->first;
+        while (cur != NULL)
+        {
+            bg_pids[bg_id++] = cur->pid;
+            cur = cur->next;
         }
     }
-
-    if (sv_input != -1)
+    else if (need_wait)
     {
-        dup2(sv_input, 0);
-    }
+        sigaction(SIGCHLD, &sold, NULL);
+        do
+        {
+            pid = wait(&status);
+            cur = ut->first;
+            while (cur != NULL)
+            {
+                if (cur->pid == pid)
+                    break;
+                cur = cur->next;
+            }
 
-    if (sv_output != -1)
-    {
-        dup2(sv_output, 1);
+            if (cur == NULL)
+                end_bg(pid, status);
+            else
+            {
+                cur->pid = 0;
+                --need_wait;
+            }
+        } while (need_wait);
+
+        sigaction(SIGCHLD, &snew, NULL);
     }
 
     return status;
@@ -282,7 +303,8 @@ static int exec(struct exec_unit *ut)
 
 /* PARSE ARRAY OF WORDS */
 
-static int separator_parse(char **arg, int *x, struct exec_unit *ut)
+static int separator_parse(char **arg, int *x, int *last_good,
+                           struct exec_unit *ut)
 {
     switch ((size_t)arg[(*x)])
     {
@@ -330,6 +352,9 @@ static int separator_parse(char **arg, int *x, struct exec_unit *ut)
         }
         ut->flags |= UT_BACKGROUND;
         break;
+    case PSEP_PIPE:
+        arg[(*last_good)++] = NULL;
+        break;
     }
     return 0;
 }
@@ -355,7 +380,7 @@ void execute(char **arg, int *status)
         {
             if ((size_t)arg[br] < PSEP_COUNT)
             {
-                result = separator_parse(arg, &br, &ut);
+                result = separator_parse(arg, &br, &last_good, &ut);
                 if (result)
                 {
                     *status = result;
@@ -368,10 +393,13 @@ void execute(char **arg, int *status)
             }
         }
 
+        unit_add_cmd(&ut, arg + bl);
+        for (; bl < last_good; ++bl)
+            if (arg[bl] == NULL)
+                unit_add_cmd(&ut, arg + bl + 1);
+
         for (; last_good < br; ++last_good)
             arg[last_good] = NULL;
-
-        ut.arg = arg + bl;
 
         *status = exec(&ut);
 

@@ -25,7 +25,7 @@ enum
     PSEP_OUT = 3,
     PSEP_OUTT = 4,
     PSEP_IN = 5,
-    PSEP_CONV = 6,
+    PSEP_PIPE = 6,
     PSEP_LBR = 7,
     PSEP_RBR = 8,
     PSEP_SEMI = 9,

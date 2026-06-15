@@ -4,6 +4,7 @@
 #include "chunicmd.h"
 #include "constant.h"
 #include "dynarr.h"
+#include "execunit.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
