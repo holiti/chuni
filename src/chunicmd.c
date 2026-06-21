@@ -3,7 +3,11 @@
 int (*chuni_cmd[CHUNI_CMD_COUNT])(char *const *) = {cd, cexit};
 static char *chuni_cmd_name[CHUNI_CMD_COUNT] = {"cd", "exit"};
 
+/* ---------------------------------------------------------------------------------
+ */
 /* IS_CHUNI_CMD */
+/* ---------------------------------------------------------------------------------
+ */
 
 int is_chuni_cmd(const char *str)
 {
@@ -15,8 +19,11 @@ int is_chuni_cmd(const char *str)
 
     return -1;
 }
-
+/* ---------------------------------------------------------------------------------
+ */
 /* CHUNI COMAND */
+/* ---------------------------------------------------------------------------------
+ */
 
 int cd(char *const *arg)
 {
@@ -53,8 +60,9 @@ int cd(char *const *arg)
     return 0;
 }
 
+extern void chuni_exit(int code);
 int cexit(char *const *arg)
 {
-    exit(0);
+    chuni_exit(0);
     return 0;
 }

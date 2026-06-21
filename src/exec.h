@@ -1,5 +1,5 @@
-#ifndef EXEC
-#define EXEC
+#ifndef CHUNI_EXEC
+#define CHUNI_EXEC
 
 #include "chunicmd.h"
 #include "constant.h"

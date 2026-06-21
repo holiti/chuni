@@ -30,6 +30,8 @@ enum
     PSEP_RBR = 8,
     PSEP_SEMI = 9,
     PSEP_BACK = 10,
+
+    PATH_MAX = 2048,
 };
 
 extern const char *sep[PSEP_COUNT];

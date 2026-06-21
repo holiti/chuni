@@ -1,5 +1,5 @@
-#ifndef EXECUNIT
-#define EXECUNIT
+#ifndef CHUNI_EXECUNIT
+#define CHUNI_EXECUNIT
 
 #include <stdlib.h>
 

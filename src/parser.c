@@ -1,14 +1,20 @@
 #include "parser.h"
+#include "ppchars.h"
 
-DYN_STRUCT(char *, pchar);
-DYN_STRUCT(char, char);
-
-static void free_pchar(dyn_pchar *pch)
+void free_ppchar(char **arg)
 {
-    for (int i = 0; i < pch->len; ++i)
-        free(pch->arr[i]);
-    free(pch);
+    if (arg == NULL)
+        return;
+    for (int i = 0; arg[i] != NULL; ++i)
+    {
+        if ((size_t)arg[i] > 10)
+            free(arg[i]);
+    }
 }
+
+/* ------------------------------------------------------------------ */
+/*PARSER PLACE */
+/* ------------------------------------------------------------------ */
 
 static size_t what_sep(const char *str)
 {
@@ -32,12 +38,12 @@ static size_t what_sep(const char *str)
     return -1;
 }
 
-static void add_word(const char *str, dyn_pchar *words, int l, int r, int badch)
+static void add_word(const char *str, ppchar *words, int l, int r, int badch)
 {
     int wlen = r - l + 1;
     char *word = calloc(wlen - badch + 1, sizeof(char));
 
-    dyn_pchar_push(words, word);
+    ppchar_add(words, word);
     for (int x = 0; l <= r; ++l)
     {
         if (str[l] == '\\')
@@ -59,7 +65,7 @@ char **parse_str(const char *str)
     int inq = 0;
     int bleft = -1;
     int badch = 0;
-    dyn_pchar *words = dyn_pchar_init();
+    ppchar *words = ppchar_init();
     char **res;
 
     for (int i = 0; i < strl; ++i)
@@ -69,7 +75,7 @@ char **parse_str(const char *str)
         {
             if (i == strl - 1)
             {
-                free_pchar(words);
+                ppchar_free(words);
                 return NULL;
             }
             badch += 1;
@@ -87,7 +93,7 @@ char **parse_str(const char *str)
 
             if (isep != -1)
             {
-                dyn_pchar_push(words, (char *)isep);
+                ppchar_add(words, (char *)isep);
                 if (isep < PSEP_SZ2)
                 {
                     ++i;
@@ -112,7 +118,7 @@ char **parse_str(const char *str)
 
     if (inq)
     {
-        free_pchar(words);
+        ppchar_free(words);
         return NULL;
     }
 
@@ -120,30 +126,8 @@ char **parse_str(const char *str)
     {
         add_word(str, words, bleft, strl - 1, badch);
     }
-    dyn_pchar_push(words, NULL);
 
-    res = words->arr;
-    free(words);
-    return res;
-}
-
-char *readstr()
-{
-    dyn_char *str = dyn_char_init();
-    char *res;
-    char ch, last;
-
-    ch = getchar();
-    while (!(ch == EOF || (ch == '\n' && last != '\\')))
-    {
-        dyn_char_push(str, ch);
-        last = ch;
-        ch = getchar();
-    }
-
-    dyn_char_push(str, 0);
-
-    res = str->arr;
-    free(str);
+    res = ppchar_ptr(words);
+    ppchar_free(words);
     return res;
 }

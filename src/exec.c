@@ -22,7 +22,21 @@ int bg_pids[BG_PROCESS_LEN];
 struct sigaction sold;
 struct sigaction snew;
 
+static void reverse(char *ptr, int len)
+{
+    int tmp;
+    for (int i = 0, mid = len / 2; i < mid; ++i)
+    {
+        tmp = ptr[i];
+        ptr[i] = ptr[len - 1 - i];
+        ptr[len - 1 - i] = tmp;
+    }
+}
+
+/* ----------------------------------------------------------------*/
 /* STATUS TOOLS */
+/* ----------------------------------------------------------------*/
+
 static char *stat[STAT_LEN] = {"exited", "signaled", "stoped"};
 static int get_stat_id(const int status)
 {
@@ -40,18 +54,9 @@ static int get_stat_id(const int status)
     return id;
 }
 
+/* ---------------------------------------------------------------*/
 /* BACKGROUND EXECUTION SUPPORT */
-
-static void reverse(char *ptr, int len)
-{
-    int tmp;
-    for (int i = 0, mid = len / 2; i < mid; ++i)
-    {
-        tmp = ptr[i];
-        ptr[i] = ptr[len - 1 - i];
-        ptr[len - 1 - i] = tmp;
-    }
-}
+/* ---------------------------------------------------------------*/
 
 static int itos(long int n)
 {
@@ -140,14 +145,18 @@ static void sigchld(int sig)
     end_bg(pid, status);
 }
 
+/* ---------------------------------------------------------------*/
 /* STREAM REDIRECTION */
+/* ---------------------------------------------------------------*/
 static inline void replace_fd(int fd, int new_fd)
 {
     dup2(fd, new_fd);
     close(fd);
 }
 
+/* ---------------------------------------------------------------*/
 /* EXECUTE COMAND */
+/* ---------------------------------------------------------------*/
 static int exec(struct exec_unit *ut)
 {
     int fd;
@@ -300,8 +309,9 @@ static int exec(struct exec_unit *ut)
 
     return status;
 }
-
+/* ------------------------------------------------------------*/
 /* PARSE ARRAY OF WORDS */
+/* ------------------------------------------------------------*/
 
 static int separator_parse(char **arg, int *x, int *last_good,
                            struct exec_unit *ut)
@@ -415,7 +425,9 @@ void execute(char **arg, int *status)
     return;
 }
 
+/* ---------------------------------------------------------------------- */
 /* INIT AND FREE PIDS */
+/* -----------------------------------------------------------------------*/
 void init_exec()
 {
 

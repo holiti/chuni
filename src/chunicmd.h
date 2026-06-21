@@ -1,5 +1,5 @@
-#ifndef CHUNICMD
-#define CHUNICMD
+#ifndef CHUNI_CMD
+#define CHUNI_CMD
 
 #include "constant.h"
 #include <errno.h>
