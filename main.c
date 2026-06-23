@@ -7,7 +7,8 @@
 #include <unistd.h>
 
 #define ERR(msg) fprintf(stderr, TTL ": %s\n", msg)
-extern void chuni_exit(int code);
+
+int main_status = 0;
 
 void chuni_exit(int code)
 {
@@ -27,27 +28,20 @@ void chuni_start()
     }
 }
 
-static void pwd(char *path, int len) { getcwd(path, len - 1); }
-
 int main(int argc, char **argv)
 {
-    char *str, path[PATH_MAX];
+    char *str;
     char **arg;
-    int status = 0;
 
     chuni_start();
 
     while (1)
     {
-        pwd(path, PATH_MAX);
-        printf("[Chuni] < %s > | <%d> ", path, status);
-        fflush(stdout);
-
         str = read_str();
 
         if (str == NULL || str[0] == 0)
         {
-            status = 0;
+            main_status = 0;
             free(str);
             continue;
         }
@@ -56,13 +50,13 @@ int main(int argc, char **argv)
 
         if (arg == NULL)
         {
-            status = 1;
+            main_status = 1;
             goto end_free;
         }
 
-        execute(arg, &status);
+        execute(arg, &main_status);
     end_free:
-        free_ppchar(arg);
+        freepp(arg);
         free(str);
     }
 

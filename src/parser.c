@@ -1,7 +1,7 @@
 #include "parser.h"
 #include "ppchars.h"
 
-void free_ppchar(char **arg)
+void freepp(char **arg)
 {
     if (arg == NULL)
         return;
@@ -38,6 +38,42 @@ static size_t what_sep(const char *str)
     return -1;
 }
 
+char **parse_var(const char *const str)
+{
+    int len = strlen(str);
+    ppchar *words = ppchar_init();
+    char **res;
+    char *word;
+    int left = 0;
+
+    for (int i = 0; i < len; ++i)
+    {
+        if (str[i] == VAR_SEP)
+        {
+            if (left < i)
+            {
+                word = calloc(i - left + 1, sizeof(char));
+                for (int j = left; j < i; ++j)
+                    word[j - left] = str[j];
+                ppchar_add(words, word);
+            }
+            left = i + 1;
+        }
+    }
+    if (left < len)
+    {
+        word = calloc(len - left + 1, sizeof(char));
+        for (int j = left; j < len; ++j)
+            word[j - left] = str[j];
+        ppchar_add(words, word);
+    }
+    ppchar_add(words, NULL);
+
+    res = ppchar_ptr(words);
+    ppchar_free(words);
+    return res;
+}
+
 static void add_word(const char *str, ppchar *words, int l, int r, int badch)
 {
     int wlen = r - l + 1;
@@ -59,7 +95,7 @@ static void add_word(const char *str, ppchar *words, int l, int r, int badch)
     }
 }
 
-char **parse_str(const char *str)
+char **parse_str(const char *const str)
 {
     int strl = strlen(str);
     int inq = 0;

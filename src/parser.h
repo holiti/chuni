@@ -7,7 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-char **parse_str(const char *str);
-void free_ppchar(char **arg);
+char **parse_var(const char *const str);
+char **parse_str(const char *const str);
+void freepp(char **arg);
 
 #endif

@@ -1,6 +1,7 @@
 #include "edit.h"
 
 struct termios old;
+char **dirs;
 
 enum
 {
@@ -40,6 +41,12 @@ static void backspace(int chars)
     if (chars < 1)
         return;
     printf("\033[%dP", chars);
+    fflush(stdout);
+}
+
+static void clearline()
+{
+    printf("\r\033[K");
     fflush(stdout);
 }
 
@@ -103,8 +110,18 @@ string *s_init()
 /* ------------------------------------------------------------------ */
 /* ACTIONS */
 /* ------------------------------------------------------------------ */
+
+static char path[PATH_MAX];
+static void pwd(char *path, int len) { getcwd(path, len - 1); }
+
+extern int main_status;
 static void s_print(string *ptr, int fd)
 {
+
+    pwd(path, PATH_MAX);
+    printf(CMD_LINE, path, main_status);
+    fflush(stdout);
+
     schar *cr = ptr->begin->next;
     while (cr != NULL)
     {
@@ -133,13 +150,15 @@ static void mvendln(string *ptr)
 
 static void s_add(string *ptr, char ch)
 {
-    ptr->cur = sc_add(ptr->cur, ch);
+    if (ch != 0)
+    {
+        ptr->cur = sc_add(ptr->cur, ch);
 
-    curmvleft(ptr->id);
+        ++ptr->len;
+        ++ptr->id;
+    }
 
-    ++ptr->len;
-    ++ptr->id;
-
+    clearline();
     s_print(ptr, 1);
 
     curmvleft(ptr->len - ptr->id);
@@ -227,6 +246,8 @@ int init_term()
 
     str = s_init();
 
+    dirs = parse_var(getenv("PATH"));
+
     return 0;
 }
 
@@ -258,19 +279,159 @@ static char *convert_to_pchar(string *str)
 /* ------------------------------------------------------------------ */
 /* Auto-complete */
 /* ------------------------------------------------------------------ */
-/*
-struct comut
+
+static int good_entry(const char *word, int wlen, const char *entr, int elen)
 {
-    char *str;
-    struct comut *next;
-};
+    if (elen < wlen)
+        return 0;
+    for (int i = 0; i < wlen; ++i)
+    {
+        if (word[i] != entr[i])
+            return 0;
+    }
 
-static void complete_cmd(string *str, schar *wrd) {}
+    return 1;
+}
 
-static void complete_file(string *str, schar *wrd) {}
+static void complete_file(const char *path, const char *word, ppchar *res)
+{
+    int wlen = strlen(word), elen;
+    char *tmp;
+    DIR *dir = opendir(path);
+    struct dirent *ent;
 
-static void acomplete(string *str) {}
-*/
+    if (dir == NULL)
+        return;
+
+    while ((ent = readdir(dir)) != NULL)
+    {
+        elen = strlen(ent->d_name);
+        if (good_entry(word, wlen, ent->d_name, elen))
+        {
+            tmp = calloc(elen + 1, sizeof(char));
+            memcpy(tmp, ent->d_name, elen);
+            ppchar_add(res, tmp);
+        }
+    }
+}
+
+static void complete_cmd(char *word, ppchar *entr)
+{
+
+    for (int i = 0; dirs[i] != NULL; ++i)
+    {
+        if ((size_t)dirs[i] <= PSEP_COUNT)
+        {
+            freepp(dirs);
+            return;
+        }
+
+        complete_file(dirs[i], word, entr);
+    }
+}
+
+static void detach_path(char *pstr, char **path, char **word)
+{
+    int slen = strlen(pstr);
+    int wlen = 0;
+    int i;
+    for (i = slen - 1; i >= 0 && pstr[i] != '/'; --i, ++wlen)
+    {
+    }
+
+    *word = calloc(wlen + 1, sizeof(char));
+    for (int j = i + 1; j < slen; ++j)
+    {
+        (*word)[j - i - 1] = pstr[j];
+    }
+
+    if (wlen != slen)
+    {
+        *path = calloc(slen - wlen + 1, sizeof(char));
+        for (int j = 0; j <= i; ++j)
+            (*path)[j] = pstr[j];
+    }
+}
+
+static void acomplete(string *str)
+{
+    int iscmd = 0;
+    int len = 0;
+    char *word = NULL, *path = NULL, *pstr = NULL;
+    schar *cur, *tmp;
+    ppchar *cr = ppchar_init();
+    pchar *pcur;
+
+    cur = str->cur;
+    while (cur->ch != ' ')
+    {
+        cur = cur->prev;
+    }
+    if (cur == str->begin)
+        iscmd = 1;
+    cur = cur->next;
+
+    tmp = cur;
+    while (tmp != NULL && tmp->ch != ' ')
+    {
+        ++len;
+        tmp = tmp->next;
+    }
+
+    pstr = calloc(len + 1, sizeof(char));
+    tmp = cur;
+    for (int i = 0; i < len; ++i, tmp = tmp->next)
+        pstr[i] = tmp->ch;
+
+    detach_path(pstr, &path, &word);
+
+    if (iscmd && path == NULL)
+    {
+        complete_cmd(word, cr);
+    }
+    else
+    {
+        if (path == NULL)
+            complete_file("./", word, cr);
+        else
+            complete_file(path, word, cr);
+    }
+
+    if (cr->len == 1)
+    {
+        pcur = cr->end;
+        while (str->cur->next != NULL && str->cur->next->ch != ' ')
+        {
+            ++str->id;
+            str->cur = str->cur->next;
+        }
+
+        for (int i = len - (path != NULL ? strlen(path) : 0);
+             i < strlen(pcur->str); ++i)
+        {
+            s_add(str, pcur->str[i]);
+        }
+    }
+    else if (cr->len > 1)
+    {
+        pcur = cr->end;
+        while (pcur->prev != NULL)
+        {
+            pcur = pcur->prev;
+        }
+        putchar('\n');
+        for (int i = 0; i < cr->len; ++i, pcur = pcur->next)
+        {
+            printf("%s\n", pcur->str);
+        }
+    }
+
+    free(path);
+    free(pstr);
+    free(word);
+    s_add(str, 0);
+}
+
 /* ------------------------------------------------------------------ */
 /* Read string */
 /* ------------------------------------------------------------------ */
@@ -280,6 +441,8 @@ char *read_str()
     char ch;
     char *rstr;
 
+    clearline();
+    s_print(str, 1);
     while ((ch = getchar()) != '\n')
     {
         switch (ch)
@@ -303,6 +466,7 @@ char *read_str()
             mvendln(str);
             break;
         case CTAB:
+            acomplete(str);
             break;
         default:
             s_add(str, ch);

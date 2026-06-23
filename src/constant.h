@@ -2,6 +2,14 @@
 #define CONSTANT
 
 #define TTL "Chuni"
+#define CMD_LINE                                                               \
+    "\033[33m[" TTL "]\033[34m"                                                \
+    " < %s > "                                                                 \
+    "\033[37m"                                                                 \
+    "|"                                                                        \
+    "\033[31m"                                                                 \
+    " <%d> "                                                                   \
+    "\033[0m"
 
 /* Separators
  1. ||
@@ -30,6 +38,8 @@ enum
     PSEP_RBR = 8,
     PSEP_SEMI = 9,
     PSEP_BACK = 10,
+
+    VAR_SEP = ':',
 
     PATH_MAX = 2048,
 };
