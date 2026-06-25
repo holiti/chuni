@@ -40,6 +40,7 @@ enum
     PSEP_BACK = 10,
 
     VAR_SEP = ':',
+    MAX_MANAGE_CODE = 31,
 
     PATH_MAX = 2048,
 };

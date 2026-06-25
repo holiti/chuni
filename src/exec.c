@@ -19,9 +19,6 @@ int bg_id = 0;
 int bg_cnt = 0;
 int bg_pids[BG_PROCESS_LEN];
 
-struct sigaction sold;
-struct sigaction snew;
-
 static void reverse(char *ptr, int len)
 {
     int tmp;
@@ -31,6 +28,21 @@ static void reverse(char *ptr, int len)
         ptr[i] = ptr[len - 1 - i];
         ptr[len - 1 - i] = tmp;
     }
+}
+
+/* ----------------------------------------------------------------*/
+/* SIGNAL TOOLS */
+/* ----------------------------------------------------------------*/
+struct sigaction sold;
+struct sigaction snew;
+
+static void sigset_def(void (*func)(int))
+{
+    struct sigaction cur = {.sa_handler = func, .sa_flags = 0};
+    sigaction(SIGINT, &cur, NULL);
+    sigaction(SIGQUIT, &cur, NULL);
+    sigaction(SIGTTOU, &cur, NULL);
+    sigaction(SIGTTIN, &cur, NULL);
 }
 
 /* ----------------------------------------------------------------*/
@@ -170,6 +182,8 @@ static int exec(struct exec_unit *ut)
     int need_wait = 0;
     int chuni_cmd_id;
 
+    int pgid = -1;
+
     while (cur != NULL)
     {
         if (cur == ut->first)
@@ -242,6 +256,13 @@ static int exec(struct exec_unit *ut)
                 if (pip[0] != -1)
                     close(pip[0]);
 
+                if (pgid == -1)
+                    pgid = setpgid(0, 0);
+                else
+                    pgid = setpgid(0, pgid);
+
+                sigset_def(SIG_DFL);
+
                 execvp(cur->arg[0], cur->arg);
                 perror(TTL);
                 fflush(stderr);
@@ -253,6 +274,11 @@ static int exec(struct exec_unit *ut)
             }
             else
             {
+                if (pgid == -1)
+                    pgid = pid;
+                setpgid(pid, pgid);
+                tcsetpgrp(0, pgid);
+
                 ++cmd_cnt;
                 ++need_wait;
                 cur->pid = pid;
@@ -283,6 +309,7 @@ static int exec(struct exec_unit *ut)
     }
     else if (need_wait)
     {
+        tcsetpgrp(0, pgid);
         sigaction(SIGCHLD, &sold, NULL);
         do
         {
@@ -305,6 +332,7 @@ static int exec(struct exec_unit *ut)
         } while (need_wait);
 
         sigaction(SIGCHLD, &snew, NULL);
+        tcsetpgrp(0, getpgid(0));
     }
 
     return status;
@@ -428,6 +456,7 @@ void execute(char **arg, int *status)
 /* ---------------------------------------------------------------------- */
 /* INIT AND FREE PIDS */
 /* -----------------------------------------------------------------------*/
+
 void init_exec()
 {
 
@@ -438,6 +467,7 @@ void init_exec()
     snew.sa_flags = SA_RESTART;
 
     sigaction(SIGCHLD, &snew, &sold);
+    sigset_def(SIG_IGN);
 }
 
 void free_exec() {}

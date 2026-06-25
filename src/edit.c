@@ -469,7 +469,10 @@ char *read_str()
             acomplete(str);
             break;
         default:
-            s_add(str, ch);
+            if (ch <= MAX_MANAGE_CODE)
+                s_add(str, '?');
+            else
+                s_add(str, ch);
         }
     }
     write(1, "\n", 1);
