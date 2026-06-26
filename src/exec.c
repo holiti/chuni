@@ -1,5 +1,7 @@
 #include "exec.h"
-#include "execunit.h"
+
+extern void term_init();
+extern void term_rec();
 
 enum
 {
@@ -44,6 +46,12 @@ static void sigset_def(void (*func)(int))
     sigaction(SIGTTOU, &cur, NULL);
     sigaction(SIGTTIN, &cur, NULL);
 }
+
+/* ----------------------------------------------------------------*/
+/* TERMINAL TOOLS */
+/* ----------------------------------------------------------------*/
+
+void termos_init() {}
 
 /* ----------------------------------------------------------------*/
 /* STATUS TOOLS */
@@ -277,7 +285,8 @@ static int exec(struct exec_unit *ut)
                 if (pgid == -1)
                     pgid = pid;
                 setpgid(pid, pgid);
-                tcsetpgrp(0, pgid);
+                if (!(ut->flags & UT_BACKGROUND))
+                    tty_make_fg(pgid);
 
                 ++cmd_cnt;
                 ++need_wait;
@@ -309,7 +318,6 @@ static int exec(struct exec_unit *ut)
     }
     else if (need_wait)
     {
-        tcsetpgrp(0, pgid);
         sigaction(SIGCHLD, &sold, NULL);
         do
         {
@@ -332,7 +340,7 @@ static int exec(struct exec_unit *ut)
         } while (need_wait);
 
         sigaction(SIGCHLD, &snew, NULL);
-        tcsetpgrp(0, getpgid(0));
+        tty_make_fg(getpgid(0));
     }
 
     return status;

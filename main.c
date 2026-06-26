@@ -12,14 +12,14 @@ int main_status = 0;
 
 void chuni_exit(int code)
 {
-    rec_term();
+    edit_free();
     free_exec();
     exit(code);
 }
 
 void chuni_start()
 {
-    int r = init_term();
+    int r = edit_init();
     init_exec();
     if (r)
     {

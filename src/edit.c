@@ -1,7 +1,6 @@
 #include "edit.h"
 
-struct termios old;
-char **dirs;
+static char **dirs;
 
 enum
 {
@@ -227,23 +226,14 @@ void s_clear(string *ptr)
 
 string *str;
 
-int init_term()
+int edit_init()
 {
-    struct termios new;
     if (!isatty(0))
     {
         return 1;
     }
 
-    tcgetattr(0, &old);
-    new = old;
-
-    new.c_lflag &= ~(ICANON | ECHO);
-    new.c_cc[VTIME] = 0;
-    new.c_cc[VMIN] = 1;
-
-    tcsetattr(0, TCSANOW, &new);
-
+    tty_init();
     str = s_init();
 
     dirs = parse_var(getenv("PATH"));
@@ -251,12 +241,13 @@ int init_term()
     return 0;
 }
 
-void rec_term()
+void edit_free()
 {
-    tcsetattr(0, TCSANOW, &old);
+    tty_recover();
     s_clear(str);
     free(str->begin);
     free(str);
+    freepp(dirs);
 }
 
 /* ------------------------------------------------------------------ */
@@ -441,6 +432,7 @@ char *read_str()
     char ch;
     char *rstr;
 
+    tty_init();
     clearline();
     s_print(str, 1);
     while ((ch = getchar()) != '\n')
@@ -479,5 +471,6 @@ char *read_str()
 
     rstr = convert_to_pchar(str);
     s_clear(str);
+    tty_recover();
     return rstr;
 }

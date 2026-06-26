@@ -5,13 +5,13 @@
 #include "constant.h"
 #include "dynarr.h"
 #include "execunit.h"
+#include "tools/chuni_tty.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
-#include <termios.h>
 #include <unistd.h>
 
 void init_exec();

@@ -1,5 +1,4 @@
 #include "parser.h"
-#include "ppchars.h"
 
 void freepp(char **arg)
 {
