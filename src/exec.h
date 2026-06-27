@@ -6,6 +6,7 @@
 #include "dynarr.h"
 #include "execunit.h"
 #include "tools/chuni_tty.h"
+#include "tools/chuni_wait.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>

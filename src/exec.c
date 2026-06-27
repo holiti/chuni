@@ -1,4 +1,5 @@
 #include "exec.h"
+#include "execunit.h"
 
 extern void term_init();
 extern void term_rec();
@@ -13,25 +14,6 @@ enum
 
 #define ERR(msg) fprintf(stderr, TTL ": %s\n", msg);
 
-char job_buff[JOB_BUFFER_LEN];
-char num_buff[NUM_BUFFER_LEN];
-char *bg_msg_front = TTL ": Job ";
-char *bg_msg_has = ", has ";
-int bg_id = 0;
-int bg_cnt = 0;
-int bg_pids[BG_PROCESS_LEN];
-
-static void reverse(char *ptr, int len)
-{
-    int tmp;
-    for (int i = 0, mid = len / 2; i < mid; ++i)
-    {
-        tmp = ptr[i];
-        ptr[i] = ptr[len - 1 - i];
-        ptr[len - 1 - i] = tmp;
-    }
-}
-
 /* ----------------------------------------------------------------*/
 /* SIGNAL TOOLS */
 /* ----------------------------------------------------------------*/
@@ -45,124 +27,6 @@ static void sigset_def(void (*func)(int))
     sigaction(SIGQUIT, &cur, NULL);
     sigaction(SIGTTOU, &cur, NULL);
     sigaction(SIGTTIN, &cur, NULL);
-}
-
-/* ----------------------------------------------------------------*/
-/* TERMINAL TOOLS */
-/* ----------------------------------------------------------------*/
-
-void termos_init() {}
-
-/* ----------------------------------------------------------------*/
-/* STATUS TOOLS */
-/* ----------------------------------------------------------------*/
-
-static char *stat[STAT_LEN] = {"exited", "signaled", "stoped"};
-static int get_stat_id(const int status)
-{
-    int id = 0;
-    if (WIFEXITED(status))
-        id = 0;
-    else if (WIFSIGNALED(status))
-    {
-        id = 1;
-    }
-    else if (WIFSTOPPED(status))
-    {
-        id = 2;
-    }
-    return id;
-}
-
-/* ---------------------------------------------------------------*/
-/* BACKGROUND EXECUTION SUPPORT */
-/* ---------------------------------------------------------------*/
-
-static int itos(long int n)
-{
-    int len = 0;
-    while (n)
-    {
-        num_buff[len++] = (n % 10) + '0';
-        n /= 10;
-    }
-    num_buff[len] = 0;
-    reverse(num_buff, len);
-    return len;
-}
-
-static void print_bg_msg(long int id, long int pid, const char *str)
-{
-    int i = 0;
-    int len = strlen(bg_msg_front);
-    memcpy(job_buff, bg_msg_front, len);
-    i += len;
-
-    len = itos(id);
-    memcpy(job_buff + i, num_buff, len);
-    i += len;
-
-    job_buff[i++] = ':';
-
-    len = itos(pid);
-    memcpy(job_buff + i, num_buff, len);
-    i += len;
-
-    len = strlen(bg_msg_has);
-    memcpy(job_buff + i, bg_msg_has, len);
-    i += len;
-
-    len = strlen(str);
-    memcpy(job_buff + i, str, len);
-    i += len;
-
-    job_buff[i++] = '\n';
-
-    write(0, job_buff, i);
-}
-
-static void end_bg(size_t pid, int status)
-{
-    int i;
-    int id = 0;
-    int last_bg = 0;
-
-    for (i = 0; i < bg_id; ++i)
-    {
-        if (bg_pids[i] < 0)
-        {
-            last_bg = i;
-            ++id;
-        }
-        else if (bg_pids[i] == pid)
-        {
-            break;
-        }
-    }
-
-    ++bg_pids[last_bg];
-    if (bg_pids[last_bg] == -1)
-    {
-        print_bg_msg(id, pid, stat[get_stat_id(status)]);
-        --bg_cnt;
-    }
-
-    bg_pids[i] = 0;
-    while (bg_id > 0 && bg_pids[bg_id - 1] <= 0)
-    {
-        --bg_id;
-    }
-}
-
-static void sigchld(int sig)
-{
-    int status;
-    size_t pid;
-
-    pid = waitpid(-1, &status, WNOHANG);
-    if (pid <= 0)
-        return;
-    end_bg(pid, status);
 }
 
 /* ---------------------------------------------------------------*/
@@ -187,11 +51,18 @@ static int exec(struct exec_unit *ut)
     int pip[2] = {-1, -1};
 
     int cmd_cnt = 0;
-    int need_wait = 0;
     int chuni_cmd_id;
 
     int pgid = -1;
 
+    if (ut->flags & UT_BACKGROUND)
+    {
+        add_bg();
+    }
+    else
+    {
+        add_fg();
+    }
     while (cur != NULL)
     {
         if (cur == ut->first)
@@ -248,16 +119,13 @@ static int exec(struct exec_unit *ut)
         chuni_cmd_id = is_chuni_cmd(cur->arg[0]);
         if (chuni_cmd_id >= 0)
         {
+
             status = chuni_cmd[chuni_cmd_id](cur->arg);
             if (!status)
-            {
                 ++cmd_cnt;
-                cur->pid = 0;
-            }
         }
         else
         {
-
             pid = fork();
             if (pid == 0)
             {
@@ -285,12 +153,17 @@ static int exec(struct exec_unit *ut)
                 if (pgid == -1)
                     pgid = pid;
                 setpgid(pid, pgid);
-                if (!(ut->flags & UT_BACKGROUND))
+                if (ut->flags & UT_BACKGROUND)
+                {
+                    add_bg_pid(pid);
+                }
+                else
+                {
                     tty_make_fg(pgid);
+                    add_fg_pid(pid);
+                }
 
                 ++cmd_cnt;
-                ++need_wait;
-                cur->pid = pid;
             }
         }
 
@@ -306,40 +179,9 @@ static int exec(struct exec_unit *ut)
         return status;
     }
 
-    if ((ut->flags & UT_BACKGROUND) && need_wait)
+    if (!(ut->flags & UT_BACKGROUND))
     {
-        bg_pids[bg_id++] = -(need_wait + 1);
-        cur = ut->first;
-        while (cur != NULL)
-        {
-            bg_pids[bg_id++] = cur->pid;
-            cur = cur->next;
-        }
-    }
-    else if (need_wait)
-    {
-        sigaction(SIGCHLD, &sold, NULL);
-        do
-        {
-            pid = wait(&status);
-            cur = ut->first;
-            while (cur != NULL)
-            {
-                if (cur->pid == pid)
-                    break;
-                cur = cur->next;
-            }
-
-            if (cur == NULL)
-                end_bg(pid, status);
-            else
-            {
-                cur->pid = 0;
-                --need_wait;
-            }
-        } while (need_wait);
-
-        sigaction(SIGCHLD, &snew, NULL);
+        wait_fg();
         tty_make_fg(getpgid(0));
     }
 
@@ -467,15 +309,8 @@ void execute(char **arg, int *status)
 
 void init_exec()
 {
-
-    for (int i = 0; i < BG_PROCESS_LEN; ++i)
-        bg_pids[i] = 0;
-
-    snew.sa_handler = sigchld;
-    snew.sa_flags = SA_RESTART;
-
-    sigaction(SIGCHLD, &snew, &sold);
     sigset_def(SIG_IGN);
+    signal_init();
 }
 
 void free_exec() {}

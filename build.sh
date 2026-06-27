@@ -9,4 +9,6 @@ gcc -Wall -g \
     edit.c \
     ppchars.c \
     tools/chuni_tty.c \
+    tools/chuni_wait.c \
+    tools/tools.c \
     ../main.c -o ../main
