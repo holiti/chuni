@@ -37,7 +37,7 @@ enum
     PSEP_LBR = 7,
     PSEP_RBR = 8,
     PSEP_SEMI = 9,
-    PSEP_BACK = 10,
+    PSEP_BG = 10,
 
     VAR_SEP = ':',
     MAX_MANAGE_CODE = 31,
@@ -46,4 +46,5 @@ enum
 };
 
 extern const char *sep[PSEP_COUNT];
+int is_psep(char *ptr);
 #endif

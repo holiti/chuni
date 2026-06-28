@@ -15,6 +15,6 @@ void add_bg_pid(size_t pid);
 
 void add_fg();
 void add_fg_pid(size_t pid);
-void wait_fg();
+void wait_fg(int *status);
 
 #endif

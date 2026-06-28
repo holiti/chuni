@@ -54,6 +54,7 @@ int main(int argc, char **argv)
             goto end_free;
         }
 
+        main_status = 0;
         execute(arg, &main_status);
     end_free:
         freepp(arg);

@@ -5,6 +5,7 @@
 #include "constant.h"
 #include "dynarr.h"
 #include "execunit.h"
+#include "parser.h"
 #include "tools/chuni_tty.h"
 #include "tools/chuni_wait.h"
 #include <errno.h>

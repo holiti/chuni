@@ -1,5 +1,5 @@
 #include "exec.h"
-#include "execunit.h"
+#include "constant.h"
 
 extern void term_init();
 extern void term_rec();
@@ -10,6 +10,10 @@ enum
     JOB_BUFFER_LEN = 1024,
     NUM_BUFFER_LEN = 32,
     BG_PROCESS_LEN = 1024,
+
+    EX_BACKGROUND = 1,
+    EX_TRUNCATE = 2,
+
 };
 
 #define ERR(msg) fprintf(stderr, TTL ": %s\n", msg);
@@ -41,21 +45,24 @@ static inline void replace_fd(int fd, int new_fd)
 /* ---------------------------------------------------------------*/
 /* EXECUTE COMAND */
 /* ---------------------------------------------------------------*/
-static int exec(struct exec_unit *ut)
+static int exec(char **arg, int cmd_cnt, char *input, char *output, int flags)
 {
     int fd;
     int pid;
     int status = 0;
-    struct cmd *cur = ut->first;
-    int sv_inp = dup(0), sv_out = dup(1);
-    int pip[2] = {-1, -1};
 
-    int cmd_cnt = 0;
+    int pip[2] = {-1, -1};
+    int sv_inp = dup(0), sv_out = dup(1);
+
     int chuni_cmd_id;
+    int executed = 0;
 
     int pgid = -1;
 
-    if (ut->flags & UT_BACKGROUND)
+    if (arg[0] == NULL)
+        return 0;
+
+    if (flags & EX_BACKGROUND)
     {
         add_bg();
     }
@@ -63,13 +70,18 @@ static int exec(struct exec_unit *ut)
     {
         add_fg();
     }
-    while (cur != NULL)
+
+    for (int i = 0, j = 0, nxt_i; j < cmd_cnt; ++j)
     {
-        if (cur == ut->first)
+        nxt_i = i;
+        while (arg[nxt_i] != NULL)
+            ++nxt_i;
+
+        if (j == 0)
         {
-            if (ut->input != NULL)
+            if (input != NULL)
             {
-                fd = open(ut->input, O_RDONLY);
+                fd = open(input, O_RDONLY);
                 if (fd == -1)
                 {
                     perror(TTL);
@@ -84,13 +96,13 @@ static int exec(struct exec_unit *ut)
             }
         }
 
-        if (cur == ut->last)
+        if (j == cmd_cnt - 1)
         {
-            if (ut->output != NULL)
+            if (output != NULL)
             {
-                fd = open(ut->output,
+                fd = open(output,
                           O_WRONLY | O_CREAT |
-                              (ut->flags & UT_TRUNCATE ? O_TRUNC : O_APPEND),
+                              (flags & UT_TRUNCATE ? O_TRUNC : O_APPEND),
                           0666);
                 if (fd == -1)
                 {
@@ -105,24 +117,26 @@ static int exec(struct exec_unit *ut)
                 dup2(sv_out, 1);
             }
         }
-
         if (pip[0] != -1)
         {
             replace_fd(pip[0], 0);
         }
-        if (cur != ut->last)
+        if (j != cmd_cnt - 1)
         {
             pipe(pip);
             replace_fd(pip[1], 1);
         }
 
-        chuni_cmd_id = is_chuni_cmd(cur->arg[0]);
+        if ((size_t)arg[i] != PSEP_LBR)
+            chuni_cmd_id = is_chuni_cmd(arg[i]);
+        else
+            chuni_cmd_id = -1;
+
         if (chuni_cmd_id >= 0)
         {
-
-            status = chuni_cmd[chuni_cmd_id](cur->arg);
+            status = chuni_cmd[chuni_cmd_id](arg + i);
             if (!status)
-                ++cmd_cnt;
+                ++executed;
         }
         else
         {
@@ -133,16 +147,31 @@ static int exec(struct exec_unit *ut)
                     close(pip[0]);
 
                 if (pgid == -1)
-                    pgid = setpgid(0, 0);
+                {
+                    setpgid(0, 0);
+                    tty_make_fg(getpid());
+                }
                 else
-                    pgid = setpgid(0, pgid);
+                {
+                    setpgid(0, pgid);
+                    tty_make_fg(pgid);
+                }
 
-                sigset_def(SIG_DFL);
+                if ((size_t)arg[i] == PSEP_LBR)
+                {
+                    int local_stat = 0;
+                    execute(arg + i + 1, &local_stat);
+                    exit(local_stat);
+                }
+                else
+                {
 
-                execvp(cur->arg[0], cur->arg);
-                perror(TTL);
-                fflush(stderr);
-                _exit(1);
+                    sigset_def(SIG_DFL);
+                    execvp(arg[i], arg + i);
+                    perror(TTL);
+                    fflush(stderr);
+                    _exit(1);
+                }
             }
             else if (pid == -1)
             {
@@ -153,7 +182,7 @@ static int exec(struct exec_unit *ut)
                 if (pgid == -1)
                     pgid = pid;
                 setpgid(pid, pgid);
-                if (ut->flags & UT_BACKGROUND)
+                if (flags & UT_BACKGROUND)
                 {
                     add_bg_pid(pid);
                 }
@@ -162,26 +191,25 @@ static int exec(struct exec_unit *ut)
                     tty_make_fg(pgid);
                     add_fg_pid(pid);
                 }
-
-                ++cmd_cnt;
+                executed += 1;
             }
         }
 
-        cur = cur->next;
+        i = nxt_i + 1;
     }
 
     replace_fd(sv_inp, 0);
     replace_fd(sv_out, 1);
 
-    if (cmd_cnt == 0)
+    if (!executed)
     {
         status = 1;
         return status;
     }
 
-    if (!(ut->flags & UT_BACKGROUND))
+    if (!(flags & UT_BACKGROUND))
     {
-        wait_fg();
+        wait_fg(&status);
         tty_make_fg(getpgid(0));
     }
 
@@ -191,68 +219,15 @@ static int exec(struct exec_unit *ut)
 /* PARSE ARRAY OF WORDS */
 /* ------------------------------------------------------------*/
 
-static int separator_parse(char **arg, int *x, int *last_good,
-                           struct exec_unit *ut)
+static void parse_execute(char **arg, int *links, int *status)
 {
-    switch ((size_t)arg[(*x)])
-    {
-    case PSEP_OUTT:
-    case PSEP_OUT:
-        if (ut->output != NULL)
-        {
-            ERR("multimply definition of output stream.");
-            return 1;
-        }
-        if (arg[(*x) + 1] == NULL)
-        {
-            ERR("file not specified.");
-            return 1;
-        }
-        ut->output = arg[(*x) + 1];
+    char *cinput = NULL, *coutput = NULL;
+    int flags = 0;
+    int cmd_cnt = 1;
 
-        if ((size_t)arg[(*x)] == PSEP_OUTT)
-        {
-            ut->flags |= UT_TRUNCATE;
-        }
-
-        ++(*x);
-        break;
-    case PSEP_IN:
-        if (ut->input != NULL)
-        {
-            ERR("multiply definition of input stream.");
-            return 1;
-        }
-        if (arg[(*x) + 1] == NULL)
-        {
-            ERR("file not specified.");
-            return 1;
-        }
-
-        ut->input = arg[(*x) + 1];
-        ++(*x);
-        break;
-    case PSEP_BACK:
-        if (arg[(*x) + 1] != NULL)
-        {
-            ERR("background flag shall is last separator");
-            return 1;
-        }
-        ut->flags |= UT_BACKGROUND;
-        break;
-    case PSEP_PIPE:
-        arg[(*last_good)++] = NULL;
-        break;
-    }
-    return 0;
-}
-void execute(char **arg, int *status)
-{
-    int bl = 0, br = 0;
-    int last_good;
-    int result;
-    struct exec_unit ut;
-    init_unit(&ut);
+    size_t sep;
+    int lb = 0, rb = 0;
+    int lst = 0;
 
     if (arg == NULL)
     {
@@ -260,51 +235,195 @@ void execute(char **arg, int *status)
         return;
     }
 
-    *status = 0;
-    while (arg[bl] != NULL)
+    for (; arg[rb] != NULL; ++rb)
     {
-        last_good = bl;
-        for (br = bl; arg[br] != NULL; ++br)
+        if (is_psep(arg[rb]))
         {
-            if ((size_t)arg[br] < PSEP_COUNT)
+            switch ((size_t)arg[rb])
             {
-                result = separator_parse(arg, &br, &last_good, &ut);
-                if (result)
+            case PSEP_OR:
+            case PSEP_AND:
+            case PSEP_SEMI:
+            case PSEP_BG:
+
+                if ((size_t)arg[rb] == PSEP_BG)
                 {
-                    *status = result;
+                    flags |= EX_BACKGROUND;
+                }
+
+                sep = (size_t)arg[rb];
+
+                arg[lst++] = NULL;
+                *status = exec(arg + lb, cmd_cnt, cinput, coutput, flags);
+
+                cinput = NULL;
+                coutput = NULL;
+                flags = 0;
+                cmd_cnt = 1;
+
+                if (sep == PSEP_AND && (*status) != 0)
+                {
                     return;
                 }
+                else if (sep == PSEP_OR && (*status) == 0)
+                {
+                    return;
+                }
+
+                lb = rb + 1;
+                lst = lb;
+
+                break;
+            case PSEP_IN:
+                if (cinput != NULL)
+                {
+                    ERR("multiply definition of input stream.");
+                    *status = 1;
+                    return;
+                }
+
+                cinput = arg[rb + 1];
+                ++rb;
+                break;
+            case PSEP_OUT:
+            case PSEP_OUTT:
+                if (coutput != NULL)
+                {
+                    ERR("multimply definition of output stream.");
+                    *status = 1;
+                    return;
+                }
+
+                if ((size_t)arg[rb] == PSEP_OUTT)
+                {
+                    flags |= EX_TRUNCATE;
+                }
+                coutput = arg[rb + 1];
+                ++rb;
+                break;
+            case PSEP_PIPE:
+                arg[lst++] = NULL;
+                ++cmd_cnt;
+                break;
+            case PSEP_LBR:
+                arg[lst++] = arg[rb];
+                for (int j = rb + 1; j < links[rb]; ++j)
+                    arg[lst++] = arg[j];
+                rb = links[rb];
+            }
+        }
+        else
+        {
+            arg[lst++] = arg[rb];
+        }
+    }
+
+    arg[lst++] = NULL;
+
+    if (arg[lb] != NULL)
+    {
+        *status = exec(arg + lb, cmd_cnt, cinput, coutput, flags);
+    }
+}
+
+static int *get_links(char **arg)
+{
+    int len = 0;
+    int *ptr;
+    int *stack;
+
+    for (; arg[len] != NULL; ++len)
+    {
+    }
+
+    if (len == 0)
+        return NULL;
+
+    ptr = malloc(len * sizeof(int));
+    stack = calloc(len, sizeof(int));
+    for (int i = 0; i < len; ++i)
+        ptr[i] = -1;
+
+    int st_top = 0;
+
+    for (int i = 0; i < len; ++i)
+    {
+        if ((size_t)arg[i] == PSEP_LBR)
+        {
+            stack[st_top++] = i;
+        }
+        else if ((size_t)arg[i] == PSEP_RBR)
+        {
+            if (st_top == 0)
+            {
+                free(stack);
+                free(ptr);
+                return NULL;
             }
             else
             {
-                arg[last_good++] = arg[br];
+                ptr[stack[st_top - 1]] = i;
+                --st_top;
             }
         }
-
-        unit_add_cmd(&ut, arg + bl);
-        for (; bl < last_good; ++bl)
-            if (arg[bl] == NULL)
-                unit_add_cmd(&ut, arg + bl + 1);
-
-        for (; last_good < br; ++last_good)
-            arg[last_good] = NULL;
-
-        *status = exec(&ut);
-
-        clear_unit(&ut);
-
-        if (!status)
-        {
-            return;
-        }
-
-        bl = br;
     }
-    return;
+    free(stack);
+    return ptr;
+}
+
+static int good_cmd(char **arg)
+{
+    if (is_psep(arg[0]) && (size_t)arg[0] != PSEP_LBR &&
+        ((size_t)arg[0] < PSEP_OUT || (size_t)arg[0] > PSEP_IN))
+        return 1;
+
+    for (int i = 1; arg[i] != NULL; ++i)
+    {
+        if (is_psep(arg[i]) && is_psep(arg[i - 1]))
+        {
+            size_t a1 = (size_t)arg[i], a2 = (size_t)arg[i - 1];
+            if (!(a1 >= PSEP_OUT && a1 <= PSEP_IN &&
+                  (a2 < PSEP_OUT || a2 > PSEP_IN)) &&
+                !(a1 == PSEP_LBR && a2 != PSEP_RBR) && !(a2 == PSEP_RBR))
+            {
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+void execute(char **arg, int *status)
+{
+    int *links;
+
+    if (arg == NULL)
+        return;
+
+    if (good_cmd(arg))
+    {
+        *status = 1;
+        ERR("bad line.")
+        return;
+    }
+
+    links = get_links(arg);
+    if (links == NULL)
+    {
+        ERR("error parentheses.");
+        free(links);
+        *status = 1;
+        return;
+    }
+
+    parse_execute(arg, links, status);
+
+    free(links);
 }
 
 /* ---------------------------------------------------------------------- */
-/* INIT AND FREE PIDS */
+/* INIT EXEC */
 /* -----------------------------------------------------------------------*/
 
 void init_exec()

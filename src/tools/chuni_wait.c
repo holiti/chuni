@@ -98,6 +98,8 @@ static void cmd_free(cmd *begin)
 
 static void job_free(job *jb)
 {
+    if (jb == NULL)
+        return;
     cmd_free(jb->c_begin);
     free(jb);
 }
@@ -224,23 +226,25 @@ void add_bg_pid(size_t pid) { job_add_pid(bg_last, pid); }
 struct sigaction s_def;
 struct sigaction s_new;
 
-void add_fg() { job_add(&fg_job); }
+void add_fg()
+{
+    job_free(fg_job);
+    fg_job = job_init(NULL);
+}
 
 void add_fg_pid(size_t pid) { job_add_pid(fg_job, pid); }
 
-void wait_fg()
+void wait_fg(int *status)
 {
-
     sigaction(SIGCHLD, &s_def, NULL);
-    size_t pid = 0;
-    int status = 0;
+    pid_t pid = 0;
 
     while (fg_job->cmd_count > 0)
     {
-        pid = wait(&status);
+        pid = wait(status);
         if (cmd_find(fg_job->c_begin, pid) == NULL)
         {
-            end_bg(pid, status);
+            end_bg(pid, *status);
         }
         else
         {
